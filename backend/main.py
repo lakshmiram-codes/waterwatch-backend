@@ -3,11 +3,14 @@ from sqlalchemy.orm import Session
 from database import engine, SessionLocal
 import models
 import schemas
+from auth import hash_password
 
+# create tables
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="WaterWatch Backend")
 
+# DB dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -32,10 +35,13 @@ def create_user(user: schemas.UserCreate):
             detail="Email already exists"
         )
 
+    
+    hashed_pwd = hash_password(user.password)
+
     new_user = models.User(
         name=user.name,
         email=user.email,
-        password=user.password,
+        hashed_password=hashed_pwd,  
         role=user.role,
         location=user.location
     )
@@ -49,6 +55,8 @@ def create_user(user: schemas.UserCreate):
         "message": "User created successfully",
         "user_id": new_user.id
     }
+
+
 @app.post("/stations/create")
 def create_station(station: schemas.StationCreate):
     db = SessionLocal()
@@ -59,6 +67,7 @@ def create_station(station: schemas.StationCreate):
         ph_level=station.ph_level,
         turbidity=station.turbidity
     )
+
     db.add(new_station)
     db.commit()
     db.refresh(new_station)
@@ -68,6 +77,7 @@ def create_station(station: schemas.StationCreate):
         "message": "Station created successfully",
         "station_id": new_station.id
     }
+
 @app.post("/reports/create")
 def create_report(report: schemas.ReportCreate):
     db = SessionLocal()
@@ -88,3 +98,36 @@ def create_report(report: schemas.ReportCreate):
         "message": "Report created successfully",
         "report_id": new_report.id
     }
+from auth import verify_password
+
+@app.post("/login", response_model=schemas.LoginResponse)
+def login(user: schemas.LoginRequest):
+    db = SessionLocal()
+
+    db_user = db.query(models.User).filter(
+        models.User.email == user.email
+    ).first()
+
+    if not db_user:
+        db.close()
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+
+    if not verify_password(user.password, db_user.password):
+        db.close()
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+
+    db.close()
+
+    return {
+        "message": "Login successful",
+        "user_id": db_user.id,
+        "role": db_user.role
+    }
+
+
